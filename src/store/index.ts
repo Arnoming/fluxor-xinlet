@@ -7,8 +7,8 @@ import {
   UserResponse,
   SafeAsset,
 } from "@mixin.dev/mixin-node-sdk";
-import { create, StateCreator } from "zustand";
-import { persist, PersistOptions, devtools } from "zustand/middleware";
+import { create } from "zustand";
+import { persist, devtools } from "zustand/middleware";
 import {
   ComputerAsset,
   ComputerAssetResponse,
@@ -84,15 +84,10 @@ const initComputerState = {
 
 // const computerClient = initComputerClient();
 
-type ComputerStorePersist = (
-  config: StateCreator<ComputerState>,
-  options: PersistOptions<ComputerState>
-) => StateCreator<ComputerState>;
-
 const createAppStore = () => {
   return create<ComputerState>()(
     devtools(
-      (persist as ComputerStorePersist)(
+      persist(
         (
           set: (state: Partial<ComputerState>) => void,
           get: () => ComputerState
@@ -117,23 +112,6 @@ const createAppStore = () => {
             const mc = MixinApi({ keystore });
             try {
               const user = await mc.user.profile();
-              const mix = buildMixAddress({
-                version: 2,
-                xinMembers: [],
-                uuidMembers: [user.user_id],
-                threshold: 1,
-              });
-              // const account = await computerClient.fetchUser(mix);
-              // if (account)
-              //   set({
-              //     user,
-              //     account,
-              //     register: true,
-              //     connected: true,
-              //   });
-              // if (account.chain_address !== get().publicKey) {
-              //   set({ publicKey: new PublicKey(account.chain_address) });
-              // } else set({ user, connected: true, register: false });
               set({ user, connected: true, register: true });
             } catch (e) {
               console.error("getMe error:", e);
@@ -394,6 +372,14 @@ const createAppStore = () => {
 
         {
           name: "miniStore",
+          // 只持久化必要的数据，避免 localStorage 配额超限
+          partialize: (state) => ({
+            user: state.user,
+            keystore: state.keystore,
+            connected: state.connected,
+            register: state.register,
+            // 不持久化 balances 和其他大数据，它们会在每次登录后重新获取
+          }) as Partial<ComputerState>,
         }
       )
     )

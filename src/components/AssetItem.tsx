@@ -44,7 +44,7 @@ export default function AssetItem({ asset }: AssetItemProps) {
     <div
       onClick={handleClick}
       className={clsx(
-        'flex items-center justify-between p-3 rounded-lg border transition-all duration-200',
+        'grid grid-cols-[auto_1fr_auto] gap-2 sm:gap-3 p-3 rounded-lg border transition-all duration-200 items-center',
         {
           'border-blue-500 bg-blue-50 cursor-pointer': isSelected,
           'border-gray-200 hover:border-gray-300 cursor-pointer': canSelect && !isSelected,
@@ -52,65 +52,63 @@ export default function AssetItem({ asset }: AssetItemProps) {
         }
       )}
     >
-      <div className="flex items-center space-x-3 flex-1">
-        {/* Asset icon with chain icon overlay */}
-        <div className="relative">
+      {/* Asset icon with chain icon overlay - 固定宽度 */}
+      <div className="relative flex-shrink-0">
+        <img
+          src={asset.icon_url}
+          alt={asset.symbol}
+          className={clsx('w-10 h-10 rounded-full', {
+            'opacity-50': !canSelect
+          })}
+          onError={(e) => {
+            e.currentTarget.src = '/placeholder-icon.png'
+          }}
+        />
+        {asset.chain_icon_url && (
           <img
-            src={asset.icon_url}
-            alt={asset.symbol}
-            className={clsx('w-10 h-10 rounded-full', {
+            src={asset.chain_icon_url}
+            alt="chain"
+            className={clsx('absolute -bottom-1 -right-1 w-4 h-4 rounded-full border border-white', {
               'opacity-50': !canSelect
             })}
-            onError={(e) => {
-              e.currentTarget.src = '/placeholder-icon.png'
-            }}
           />
-          {asset.chain_icon_url && (
-            <img
-              src={asset.chain_icon_url}
-              alt="chain"
-              className={clsx('absolute -bottom-1 -right-1 w-4 h-4 rounded-full border border-white', {
-                'opacity-50': !canSelect
-              })}
-            />
-          )}
-        </div>
-
-        {/* Asset info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center space-x-2">
-            <h3 className={clsx('font-medium truncate', {
-              'text-gray-900': canSelect,
-              'text-gray-500': !canSelect
-            })}>
-              {asset.symbol}
-            </h3>
-            {!canSelect && (
-              <span className="text-xs text-gray-600 bg-gray-300 px-2 py-0.5 rounded">
-                不可兑换
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-gray-500 truncate">
-            {asset.name}
-          </p>
-          {!canSelect && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              金额需小于 $10 才能兑换
-            </p>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Asset value and selection indicator */}
-      <div className="text-right flex-shrink-0 ml-2">
+      {/* Asset info - 占据剩余空间，最小宽度0允许收缩 */}
+      <div className="min-w-0 overflow-hidden">
+        <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+          <h3 className={clsx('font-medium text-sm sm:text-base truncate', {
+            'text-gray-900': canSelect,
+            'text-gray-500': !canSelect
+          })}>
+            {asset.symbol}
+          </h3>
+          {!canSelect && (
+            <span className="text-xs text-gray-600 bg-gray-300 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
+              不可兑换
+            </span>
+          )}
+        </div>
+        <p className="text-xs sm:text-sm text-gray-500 truncate">
+          {asset.name}
+        </p>
+        {!canSelect && (
+          <p className="text-xs text-gray-500 mt-0.5">
+            金额需小于 $10 才能兑换
+          </p>
+        )}
+      </div>
+
+      {/* Asset value - 固定宽度区域 */}
+      <div className="text-right min-w-0 max-w-[140px] sm:max-w-[180px]">
         {/* USD 价值 - 点击切换显示格式 */}
         <div
           onClick={(e) => {
             e.stopPropagation()
             setShowFullValue(!showFullValue)
           }}
-          className={clsx('font-medium text-sm md:text-base cursor-pointer hover:underline break-all', {
+          className={clsx('font-medium text-xs sm:text-sm cursor-pointer hover:underline break-words leading-tight', {
             'text-gray-900': canSelect,
             'text-gray-500': !canSelect
           })}
@@ -125,7 +123,7 @@ export default function AssetItem({ asset }: AssetItemProps) {
             e.stopPropagation()
             setShowFullBalance(!showFullBalance)
           }}
-          className="text-xs md:text-sm text-gray-500 cursor-pointer hover:underline break-all"
+          className="text-xs text-gray-500 cursor-pointer hover:underline break-words leading-tight mt-0.5"
           title="点击查看完整余额"
         >
           {showFullBalance

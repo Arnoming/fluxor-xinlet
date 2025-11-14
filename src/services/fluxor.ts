@@ -15,7 +15,7 @@ export interface InvoiceResponse {
 export class FluxorService {
   // Mixin 网络销毁地址
   static readonly BURN_ADDRESS =
-    "MIXSK624cFT3CXbbjYxU17CeYWCwj6CZgkp2VsfiRsDMXw4MzpfYKPKKYwLmfDby2z85MLAbSWZbAB1dfPetCxUf7vwwJnToaG8";
+    "MIXPYWueygZbcnHqGEd5QoH6JZ31jdhJRX5aVHes1G8ArCK7MmodBsp4U3LkL1BUVUA4XMpLCodutYYygoSLnKTaNhYGDK2P9Xn";
 
   static generateInvoice(
     assets: UserAssetBalance[],
@@ -26,8 +26,7 @@ export class FluxorService {
     let mixAddress: string;
 
     if (useBurnAddress) {
-      mixAddress =
-        "MIXPYWueygZbcnHqGEd5QoH6JZ31jdhJRX5aVHes1G8ArCK7MmodBsp4U3LkL1BUVUA4XMpLCodutYYygoSLnKTaNhYGDK2P9Xn";
+      mixAddress = FluxorService.BURN_ADDRESS;
     } else {
       const clientId = process.env.NEXT_PUBLIC_CLIENT_ID || "";
       if (!clientId) {
@@ -43,7 +42,6 @@ export class FluxorService {
       });
     }
 
-    console.log("mixAddress: ", mixAddress);
     // 创建 Invoice 对象
     const invoice = newMixinInvoice(mixAddress);
     if (!invoice) {

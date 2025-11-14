@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useAppStore } from '@/store'
 import { FluxorService } from '@/services/fluxor'
 import PaymentQRCode from './PaymentQRCode'
+import { formatUSD, formatBalance } from '@/utils/format'
 
 // XIN Asset ID
 const XIN_ASSET_ID = 'c94ac88f-4671-3976-b60a-09064f1811e8'
@@ -124,30 +125,30 @@ export default function ExchangePanel() {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex justify-between items-center mb-3">
                 <span className="text-sm font-medium text-blue-800">已选资产</span>
-                <span className="text-sm font-medium text-blue-800">${totalSelectedValue.toFixed(8)}</span>
+                <span className="text-sm font-medium text-blue-800 break-all">{formatUSD(totalSelectedValue)}</span>
               </div>
               <div className="space-y-2 mb-3">
                 {selectedAssets.map((asset) => {
                   const assetValue = parseFloat(asset.total_amount) * parseFloat(asset.asset?.price_usd || '0')
                   return (
-                    <div key={asset.asset_id} className="flex items-center justify-between text-sm bg-white rounded-lg p-2">
-                      <div className="flex items-center gap-2">
+                    <div key={asset.asset_id} className="flex items-center justify-between gap-2 text-sm bg-white rounded-lg p-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-shrink">
                         <img
                           src={asset.asset?.icon_url || ''}
                           alt={asset.asset?.symbol || ''}
-                          className="w-6 h-6 rounded-full"
+                          className="w-6 h-6 rounded-full flex-shrink-0"
                           onError={(e) => {
                             e.currentTarget.src = '/placeholder-icon.png'
                           }}
                         />
-                        <span className="text-blue-700 font-medium">{asset.asset?.symbol}</span>
+                        <span className="text-blue-700 font-medium truncate">{asset.asset?.symbol}</span>
                       </div>
-                      <div className="text-right">
-                        <div className="text-blue-700 font-medium">
-                          ${assetValue.toFixed(8)}
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-blue-700 font-medium text-xs md:text-sm break-all">
+                          {formatUSD(assetValue)}
                         </div>
-                        <div className="text-xs text-blue-600">
-                          {parseFloat(asset.total_amount).toFixed(8)}
+                        <div className="text-xs text-blue-600 break-all">
+                          {formatBalance(parseFloat(asset.total_amount), '')}
                         </div>
                       </div>
                     </div>
@@ -155,10 +156,10 @@ export default function ExchangePanel() {
                 })}
               </div>
               <div className="border-t border-blue-300 pt-3">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-sm font-medium text-blue-800">预计可兑换</span>
-                  <div className="text-lg font-bold text-blue-900">
-                    {estimatedXIN.toFixed(8)} XIN
+                  <div className="text-base md:text-lg font-bold text-blue-900 break-all">
+                    {formatBalance(estimatedXIN, 'XIN')}
                   </div>
                 </div>
               </div>

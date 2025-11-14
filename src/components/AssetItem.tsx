@@ -3,6 +3,8 @@
 import { Asset } from '@/types'
 import { useAppStore } from '@/store'
 import clsx from 'clsx'
+import { formatUSD, formatBalance, formatFullNumber } from '@/utils/format'
+import { useState } from 'react'
 
 interface AssetItemProps {
   asset: Asset
@@ -10,6 +12,8 @@ interface AssetItemProps {
 
 export default function AssetItem({ asset }: AssetItemProps) {
   const { selectedAssets, toggleAssetSelection } = useAppStore()
+  const [showFullValue, setShowFullValue] = useState(false)
+  const [showFullBalance, setShowFullBalance] = useState(false)
 
   const isSelected = selectedAssets.some(a => a.asset_id === asset.asset_id)
   const canSelect = asset.value_usd < 10
@@ -99,15 +103,34 @@ export default function AssetItem({ asset }: AssetItemProps) {
       </div>
 
       {/* Asset value and selection indicator */}
-      <div className="text-right">
-        <div className={clsx('font-medium', {
-          'text-gray-900': canSelect,
-          'text-gray-500': !canSelect
-        })}>
-          ${asset.value_usd.toFixed(8)}
+      <div className="text-right flex-shrink-0 ml-2">
+        {/* USD 价值 - 点击切换显示格式 */}
+        <div
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowFullValue(!showFullValue)
+          }}
+          className={clsx('font-medium text-sm md:text-base cursor-pointer hover:underline break-all', {
+            'text-gray-900': canSelect,
+            'text-gray-500': !canSelect
+          })}
+          title="点击查看完整数值"
+        >
+          {showFullValue ? `$${formatFullNumber(asset.value_usd, 8)}` : formatUSD(asset.value_usd)}
         </div>
-        <div className="text-sm text-gray-500">
-          {parseFloat(asset.balance).toFixed(8)} {asset.symbol}
+
+        {/* 余额 - 点击切换显示格式 */}
+        <div
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowFullBalance(!showFullBalance)
+          }}
+          className="text-xs md:text-sm text-gray-500 cursor-pointer hover:underline break-all"
+          title="点击查看完整余额"
+        >
+          {showFullBalance
+            ? `${formatFullNumber(parseFloat(asset.balance), 8)} ${asset.symbol}`
+            : formatBalance(parseFloat(asset.balance), asset.symbol)}
         </div>
       </div>
     </div>

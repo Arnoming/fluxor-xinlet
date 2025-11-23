@@ -3,21 +3,31 @@
  * High-level API for frontend swap operations
  */
 
-import type { AppKeystore, NetworkUserKeystore } from '@mixin.dev/mixin-node-sdk'
-import { createWeb3Client, type Web3ClientOptions } from '@/lib/mixin-route-client'
+import type {
+  AppKeystore,
+  NetworkUserKeystore,
+} from "@mixin.dev/mixin-node-sdk";
+import {
+  createWeb3Client,
+  type Web3ClientOptions,
+} from "@/lib/mixin-route-client-v2";
 import type {
   TokenView,
   QuoteRespView,
   SwapRequest,
   SwapRespView,
-  MixinRouteAPIError
-} from '@/types/mixin-route.types'
+  SwapOrder,
+  MixinRouteAPIError,
+} from "@/types/mixin-route.types";
 
 export class MixinSwapService {
-  private client: ReturnType<typeof createWeb3Client>
+  private client: ReturnType<typeof createWeb3Client>;
 
-  constructor(keystore: AppKeystore | NetworkUserKeystore, options?: Web3ClientOptions) {
-    this.client = createWeb3Client(keystore, options)
+  constructor(
+    keystore: AppKeystore | NetworkUserKeystore,
+    options?: Web3ClientOptions
+  ) {
+    this.client = createWeb3Client(keystore, options);
   }
 
   /**
@@ -25,10 +35,10 @@ export class MixinSwapService {
    */
   async getSupportedTokens(): Promise<TokenView[]> {
     try {
-      return await this.client.getTokens()
+      return await this.client.getTokens();
     } catch (error) {
-      console.error('Failed to get supported tokens:', error)
-      throw error
+      console.error("Failed to get supported tokens:", error);
+      throw error;
     }
   }
 
@@ -45,24 +55,24 @@ export class MixinSwapService {
     amount: string
   ): Promise<QuoteRespView> {
     try {
-      return await this.client.getQuote(inputAssetId, outputAssetId, amount)
+      return await this.client.getQuote(inputAssetId, outputAssetId, amount);
     } catch (error) {
-      const routeError = error as MixinRouteAPIError
+      const routeError = error as MixinRouteAPIError;
 
       // Handle specific error codes
       if (routeError.code === 10614) {
         // Invalid quote amount - has min/max range
         throw new Error(
           `Amount out of range. Min: ${routeError.range?.min}, Max: ${routeError.range?.max}`
-        )
+        );
       } else if (routeError.code === 10615) {
-        throw new Error('No available quote found for this swap pair')
+        throw new Error("No available quote found for this swap pair");
       } else if (routeError.code === 10611) {
-        throw new Error('Invalid swap configuration')
+        throw new Error("Invalid swap configuration");
       }
 
-      console.error('Failed to get swap quote:', error)
-      throw error
+      console.error("Failed to get swap quote:", error);
+      throw error;
     }
   }
 
@@ -72,12 +82,12 @@ export class MixinSwapService {
    * @returns Swap response with Mixin payment link
    */
   async createSwap(params: {
-    payerUserId: string
-    inputAssetId: string
-    outputAssetId: string
-    inputAmount: string
-    payload: string
-    referralUserId?: string
+    payerUserId: string;
+    inputAssetId: string;
+    outputAssetId: string;
+    inputAmount: string;
+    payload: string;
+    referralUserId?: string;
   }): Promise<SwapRespView> {
     const request: SwapRequest = {
       payer: params.payerUserId,
@@ -85,14 +95,14 @@ export class MixinSwapService {
       outputMint: params.outputAssetId,
       inputAmount: params.inputAmount,
       payload: params.payload,
-      referral: params.referralUserId
-    }
+      referral: params.referralUserId,
+    };
 
     try {
-      return await this.client.swap(request)
+      return await this.client.swap(request);
     } catch (error) {
-      console.error('Failed to create swap:', error)
-      throw error
+      console.error("Failed to create swap:", error);
+      throw error;
     }
   }
 
@@ -101,21 +111,21 @@ export class MixinSwapService {
    * @returns Both quote and transaction information
    */
   async executeSwap(params: {
-    payerUserId: string
-    inputAssetId: string
-    outputAssetId: string
-    inputAmount: string
-    referralUserId?: string
+    payerUserId: string;
+    inputAssetId: string;
+    outputAssetId: string;
+    inputAmount: string;
+    referralUserId?: string;
   }): Promise<{
-    quote: QuoteRespView
-    swap: SwapRespView
+    quote: QuoteRespView;
+    swap: SwapRespView;
   }> {
     // First get quote
     const quote = await this.getSwapQuote(
       params.inputAssetId,
       params.outputAssetId,
       params.inputAmount
-    )
+    );
 
     // Then create swap with the payload from quote
     const swap = await this.createSwap({
@@ -124,10 +134,23 @@ export class MixinSwapService {
       outputAssetId: params.outputAssetId,
       inputAmount: params.inputAmount,
       payload: quote.payload,
-      referralUserId: params.referralUserId
-    })
+      referralUserId: params.referralUserId,
+    });
 
-    return { quote, swap }
+    return { quote, swap };
+  }
+  /**
+   * Get swap order details
+   * @param params.orderId - Swap order ID
+   * @returns Swap order details
+   */
+  async getSwapOrder(params: { orderId: string }): Promise<SwapOrder> {
+    try {
+      return await this.client.getSwapOrder(params.orderId);
+    } catch (error) {
+      console.error("Failed to get swap order:", error);
+      throw error;
+    }
   }
 }
 
@@ -138,5 +161,5 @@ export function createMixinSwapService(
   keystore: AppKeystore | NetworkUserKeystore,
   options?: Web3ClientOptions
 ): MixinSwapService {
-  return new MixinSwapService(keystore, options)
+  return new MixinSwapService(keystore, options);
 }

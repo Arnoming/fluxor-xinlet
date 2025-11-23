@@ -10,6 +10,7 @@
  * Or integrate this code into your React components using the useMixinSwap hook.
  */
 
+import { decodeSwapTx } from "@/types/mixin-route.types";
 import { createMixinSwapService } from "../src/services/mixin-swap";
 import type { AppKeystore } from "@mixin.dev/mixin-node-sdk";
 
@@ -53,13 +54,13 @@ async function main() {
 
     // 2. Get swap quote
     console.log("💱 Step 2: Getting swap quote...");
-    console.log(`   Input: 1 XIN`);
+    console.log(`   Input: 0.01 XIN`);
     console.log(`   Output: USDT\n`);
 
     const quote = await swapService.getSwapQuote(
       ASSETS.XIN, // Input: XIN
       ASSETS.USDT, // Output: USDT
-      "1" // Amount: 1 XIN
+      "0.01" // Amount: 1 XIN
     );
 
     console.log("✅ Quote received:");
@@ -75,19 +76,23 @@ async function main() {
       payerUserId: keystore.app_id, // Replace with actual user ID
       inputAssetId: ASSETS.XIN,
       outputAssetId: ASSETS.USDT,
-      inputAmount: "1",
+      inputAmount: "0.01",
       payload: quote.payload,
-      
     });
 
     console.log("✅ Swap created!");
     console.log(`   Payment URL: ${swap.tx}`);
     console.log(`   (Open this URL in Mixin to complete payment)\n`);
 
+    const swapResponse = decodeSwapTx(swap.tx);
     // 4. Or use executeSwap for one-step quote + create
     console.log("🎯 Alternative: Use executeSwap for one-step process");
     console.log("   (Commented out to avoid actual transaction)\n");
+    const order = await swapService.getSwapOrder({
+      orderId: "019ab032-c5dd-7f30-872e-82964e8af7a7",
+    });
 
+    console.log("order: ", { order });
     /*
     const result = await swapService.executeSwap({
       payerUserId: 'your-mixin-user-id',

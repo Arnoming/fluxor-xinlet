@@ -9,53 +9,145 @@
 
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import type { AppKeystore, NetworkUserKeystore } from '@mixin.dev/mixin-node-sdk'
+import { sha512 } from "@noble/hashes/sha2.js";
+import { ed25519, x25519 } from "@noble/curves/ed25519.js";
+import { v4 as uuidv4 } from "uuid";
+import {
+  MixinApi,
+  type AppKeystore,
+  type NetworkUserKeystore,
+} from "@mixin.dev/mixin-node-sdk";
 import type {
   TokenView,
   QuoteRespView,
   SwapRequest,
   SwapRespView,
+  SwapOrder,
   RouteErrorResponse,
-  MixinRouteAPIError
-} from '@/types/mixin-route.types'
+  MixinRouteAPIError,
+} from "@/types/mixin-route.types";
 
-export const MIXIN_ROUTE_API_PREFIX = 'https://api.route.mixin.one'
-export const MIXIN_ROUTE_CLIENT_ID = '61cb8dd4-16b1-4744-ba0c-7b2d2e52fc59'
-export const MIXIN_API_BASE = 'https://api.mixin.one'
+export const MIXIN_ROUTE_API_PREFIX = "https://api.route.mixin.one";
+export const MIXIN_ROUTE_CLIENT_ID = "61cb8dd4-16b1-4744-ba0c-7b2d2e52fc59";
+export const MIXIN_API_BASE = "https://api.mixin.one";
 
 // 缓存 Route bot 的公钥
-let cachedRouteBotPublicKey: Uint8Array | null = null
+let cachedRouteBotPublicKey: Uint8Array | null = null;
+
+/**
+ * 生成 Mixin API 认证 Token (JWT)
+ */
+function signAuthenticationToken(
+  method: string,
+  uri: string,
+  body: string,
+  keystore: AppKeystore | NetworkUserKeystore
+): string {
+  const iat = Math.floor(Date.now() / 1000);
+  const exp = iat + 3600; // 1 hour expiration
+  const jti = uuidv4();
+
+  // Calculate sig = hex(sha256(method + uri + body))
+  const data = method.toUpperCase() + uri + body;
+  const hash = sha256(Buffer.from(data));
+  const sig = Buffer.from(hash).toString("hex");
+
+  // Determine uid
+  const uid =
+    (keystore as any).user_id ||
+    (keystore as any).app_id ||
+    (keystore as any).client_id;
+
+  if (!uid) {
+    throw new Error("Keystore missing user_id or app_id");
+  }
+
+  const payload = {
+    uid,
+    sid: keystore.session_id,
+    iat,
+    exp,
+    jti,
+    sig,
+    scp: "FULL",
+  };
+
+  const header = { alg: "EdDSA", typ: "JWT", kid: keystore.session_id };
+
+  const headerBase64 = base64URLEncode(Buffer.from(JSON.stringify(header)));
+  const payloadBase64 = base64URLEncode(Buffer.from(JSON.stringify(payload)));
+
+  const signingInput = `${headerBase64}.${payloadBase64}`;
+
+  const privateKeySeed = Buffer.from(keystore.session_private_key, "hex");
+  const signature = ed25519.sign(Buffer.from(signingInput), privateKeySeed);
+  const signatureBase64 = base64URLEncode(signature);
+
+  return `${signingInput}.${signatureBase64}`;
+}
 
 /**
  * 获取 Mixin 用户的 session 公钥
  */
-async function fetchUserSession(userId: string, keystore: AppKeystore | NetworkUserKeystore): Promise<string> {
+async function fetchUserSession(
+  userId: string,
+  keystore: AppKeystore | NetworkUserKeystore
+): Promise<string> {
   // 如果已缓存,直接返回
   if (cachedRouteBotPublicKey) {
-    return base64URLEncode(cachedRouteBotPublicKey)
+    return base64URLEncode(cachedRouteBotPublicKey);
   }
 
-  // 调用 Mixin API 获取用户 session
-  const url = `${MIXIN_API_BASE}/users/${userId}`
+  const method = "POST";
+  const path = "/sessions/fetch";
+  const body = JSON.stringify([userId]);
 
-  // 这里需要用 Mixin SDK 的认证
-  // 简化实现: 直接使用已知的 Route bot 公钥
-  // 在生产环境中应该调用 Mixin API
+  const token = signAuthenticationToken(method, path, body, keystore);
 
-  // Route bot 的公钥 (需要通过 API 获取)
-  // 这里先用占位符,实际应该调用 Mixin API
-  throw new Error('Need to fetch Route bot public key from Mixin API')
+  try {
+    const response = await fetch(`${MIXIN_API_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+
+    const result = await response.json();
+
+    // Go: struct { Data []*UserSession, Error Error }
+    if (result.error && result.error.code > 0) {
+      throw new Error(`Mixin API Error: ${result.error.description}`);
+    }
+
+    if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+      const session = result.data[0];
+      if (session && session.public_key) {
+        const pubKey = base64URLDecode(session.public_key);
+        cachedRouteBotPublicKey = pubKey;
+        return session.public_key;
+      }
+    }
+
+    throw new Error("Invalid response from /sessions/fetch");
+  } catch (error) {
+    console.error("fetchUserSession failed", error);
+    throw error;
+  }
 }
 
 /**
  * Base64 URL 编码
  */
 function base64URLEncode(data: Uint8Array | Buffer): string {
-  const base64 = Buffer.from(data).toString('base64')
-  return base64
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '')
+  const base64 = Buffer.from(data).toString("base64");
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 /**
@@ -63,13 +155,13 @@ function base64URLEncode(data: Uint8Array | Buffer): string {
  */
 function base64URLDecode(str: string): Uint8Array {
   // 补齐 padding
-  const pad = str.length % 4
+  const pad = str.length % 4;
   if (pad) {
-    str += '='.repeat(4 - pad)
+    str += "=".repeat(4 - pad);
   }
 
-  const base64 = str.replace(/-/g, '+').replace(/_/g, '/')
-  return Uint8Array.from(Buffer.from(base64, 'base64'))
+  const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(Buffer.from(base64, "base64"));
 }
 
 /**
@@ -77,26 +169,20 @@ function base64URLDecode(str: string): Uint8Array {
  */
 function ed25519PrivateToCurve25519(ed25519PrivateKey: Uint8Array): Uint8Array {
   // Ed25519 种子是前32字节
-  const seed = ed25519PrivateKey.slice(0, 32)
+  const seed = ed25519PrivateKey.slice(0, 32);
 
-  // 使用 SHA512 哈希种子
-  const hash = sha256(seed)
+  // 使用 SHA512 哈希种子 (Go implementation)
+  const h = sha512.create();
+  h.update(seed);
+  const digest = h.digest();
 
   // Curve25519 私钥需要进行位操作
-  const curve25519Private = new Uint8Array(hash.slice(0, 32))
-  curve25519Private[0] &= 248
-  curve25519Private[31] &= 127
-  curve25519Private[31] |= 64
+  const curve25519Private = new Uint8Array(digest.slice(0, 32));
+  curve25519Private[0] &= 248;
+  curve25519Private[31] &= 127;
+  curve25519Private[31] |= 64;
 
-  return curve25519Private
-}
-
-/**
- * Ed25519 公钥转 Curve25519 公钥
- */
-function ed25519PublicToCurve25519(ed25519PublicKey: Uint8Array): Uint8Array {
-  // 这需要复杂的数学运算,使用 @noble/curves 提供的方法
-  // return ed25519.edwardsToMontgomery(ed25519PublicKey)
+  return curve25519Private;
 }
 
 /**
@@ -107,52 +193,50 @@ async function generateSharedKey(
   routeBotPublicKey: string
 ): Promise<Uint8Array> {
   // 1. 解码自己的私钥 (hex)
-  const privateKeySeed = Buffer.from(keystore.session_private_key, 'hex')
+  // Mixin Keystore 的 session_private_key 是 Ed25519 的种子 (32字节)
+  const privateKeySeed = Buffer.from(keystore.session_private_key, "hex");
 
-  
+  // 2. 转换为 Curve25519 私钥
+  const curve25519Private = ed25519PrivateToCurve25519(privateKeySeed);
 
-  // 2. 从种子创建 Ed25519 密钥对
-  // const ed25519PrivateKey = utils.randomPrivateKey() // 临时,应该用种子派生
-  // 实际应该: const ed25519PrivateKey = ed25519.privateKeyFromSeed(privateKeySeed)
+  // 3. 解码对方公钥 (base64 URL)
+  const remoteCurve25519Public = base64URLDecode(routeBotPublicKey);
 
-  // 3. 转换为 Curve25519 私钥
-  const curve25519Private = ed25519PrivateToCurve25519(privateKeySeed)
+  // 4. 进行 X25519 密钥交换
+  const sharedSecret = x25519.getSharedSecret(
+    curve25519Private,
+    remoteCurve25519Public
+  );
 
-  // 4. 解码对方公钥 (base64 URL)
-  const remoteCurve25519Public = base64URLDecode(routeBotPublicKey)
-
-  // 5. 进行 X25519 密钥交换
-  const sharedSecret = ed25519.x25519.getSharedSecret(curve25519Private, remoteCurve25519Public)
-
-  return sharedSecret
+  return sharedSecret;
 }
 
 export interface Web3ClientOptions {
-  baseURL?: string
-  timeout?: number
-  retryCount?: number
-  retryDelay?: number
+  baseURL?: string;
+  timeout?: number;
+  retryCount?: number;
+  retryDelay?: number;
 }
 
 export class Web3Client {
-  private baseURL: string
-  private keystore: AppKeystore | NetworkUserKeystore
-  private clientID: string
-  private timeout: number
-  private retryCount: number
-  private retryDelay: number
-  private sharedKeyPromise: Promise<Uint8Array> | null = null
+  private baseURL: string;
+  private keystore: AppKeystore | NetworkUserKeystore;
+  private clientID: string;
+  private timeout: number;
+  private retryCount: number;
+  private retryDelay: number;
+  private sharedKeyPromise: Promise<Uint8Array> | null = null;
 
   constructor(
     keystore: AppKeystore | NetworkUserKeystore,
     options: Web3ClientOptions = {}
   ) {
-    this.baseURL = options.baseURL || MIXIN_ROUTE_API_PREFIX
-    this.keystore = keystore
-    this.clientID = MIXIN_ROUTE_CLIENT_ID
-    this.timeout = options.timeout || 10000
-    this.retryCount = options.retryCount || 0
-    this.retryDelay = options.retryDelay || 1000
+    this.baseURL = options.baseURL || MIXIN_ROUTE_API_PREFIX;
+    this.keystore = keystore;
+    this.clientID = MIXIN_ROUTE_CLIENT_ID;
+    this.timeout = options.timeout || 10000;
+    this.retryCount = options.retryCount || 0;
+    this.retryDelay = options.retryDelay || 1000;
   }
 
   /**
@@ -162,14 +246,17 @@ export class Web3Client {
     if (!this.sharedKeyPromise) {
       this.sharedKeyPromise = (async () => {
         // 获取 Route bot 的公钥
-        const routeBotPublicKey = await fetchUserSession(this.clientID, this.keystore)
+        const routeBotPublicKey = await fetchUserSession(
+          this.clientID,
+          this.keystore
+        );
 
         // 生成共享密钥
-        return generateSharedKey(this.keystore, routeBotPublicKey)
-      })()
+        return generateSharedKey(this.keystore, routeBotPublicKey);
+      })();
     }
 
-    return this.sharedKeyPromise
+    return this.sharedKeyPromise;
   }
 
   /**
@@ -187,22 +274,23 @@ export class Web3Client {
     timestamp: number
   ): Promise<string> {
     // 获取共享密钥
-    const sharedKey = await this.getSharedKey()
+    const sharedKey = await this.getSharedKey();
 
     // 构建待签名数据: timestamp + method + uri + body
-    const data = `${timestamp}${method.toUpperCase()}${uri}${body}`
+    const data = `${timestamp}${method.toUpperCase()}${uri}${body}`;
 
     // HMAC-SHA256 签名
-    const hash = hmac(sha256, sharedKey, Buffer.from(data))
+    const hash = hmac(sha256, sharedKey, Buffer.from(data));
 
     // 组合: userId + hash
+    // Go implementation: base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s", c.SafeUser.UserId, hash)))
     const combined = Buffer.concat([
-      Buffer.from(this.keystore.app_id, 'utf-8'),
-      Buffer.from(hash)
-    ])
+      Buffer.from(this.keystore.app_id, "utf-8"),
+      Buffer.from(hash), // hash matches the decoded hex string from Go's HmacSha256
+    ]);
 
     // Base64 URL 编码
-    return base64URLEncode(combined)
+    return base64URLEncode(combined);
   }
 
   /**
@@ -214,114 +302,123 @@ export class Web3Client {
     query?: string,
     body?: unknown
   ): Promise<T> {
-    const url = new URL(path, this.baseURL)
+    const url = new URL(path, this.baseURL);
     if (query) {
-      url.search = query
+      url.search = query;
     }
 
-    const uri = url.pathname + url.search
-    const bodyString = body ? JSON.stringify(body) : ''
-    const timestamp = Math.floor(Date.now() / 1000)
+    const uri = url.pathname + url.search;
+    const bodyString = body ? JSON.stringify(body) : "";
+    const timestamp = Math.floor(Date.now() / 1000);
 
     // 生成签名
-    const signature = await this.signRequest(method, uri, bodyString, timestamp)
+    const signature = await this.signRequest(
+      method,
+      uri,
+      bodyString,
+      timestamp
+    );
 
     // 准备请求头
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'MR-ACCESS-TIMESTAMP': timestamp.toString(),
-      'MR-ACCESS-SIGN': signature
-    }
+      "Content-Type": "application/json",
+      "MR-ACCESS-TIMESTAMP": timestamp.toString(),
+      "MR-ACCESS-SIGN": signature,
+    };
 
     // 发送请求
-    let lastError: Error | null = null
+    let lastError: Error | null = null;
     for (let attempt = 0; attempt <= this.retryCount; attempt++) {
       try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
         const response = await fetch(url.toString(), {
           method,
           headers,
           body: bodyString || undefined,
-          signal: controller.signal
-        })
+          signal: controller.signal,
+        });
 
-        clearTimeout(timeoutId)
+        clearTimeout(timeoutId);
 
         // 处理错误响应
         if (!response.ok || response.status === 202) {
-          const errorBody = await response.text()
-          let errorData: RouteErrorResponse | null = null
+          const errorBody = await response.text();
+          let errorData: RouteErrorResponse | null = null;
 
           try {
-            errorData = JSON.parse(errorBody)
+            errorData = JSON.parse(errorBody);
           } catch {
             // 非 JSON 响应
           }
 
           if (errorData?.error) {
-            const err = new Error(errorData.error.description) as MixinRouteAPIError
-            err.name = 'MixinRouteAPIError'
-            err.statusCode = response.status
-            err.code = errorData.error.code
-            err.description = errorData.error.description
-            err.rawBody = errorBody
-            err.range = errorData.error.extra?.range
-            throw err
+            const err = new Error(
+              errorData.error.description
+            ) as MixinRouteAPIError;
+            err.name = "MixinRouteAPIError";
+            err.statusCode = response.status;
+            err.code = errorData.error.code;
+            err.description = errorData.error.description;
+            err.rawBody = errorBody;
+            err.range = errorData.error.extra?.range;
+            throw err;
           }
 
-          const err = new Error(`HTTP ${response.status}: ${errorBody}`) as MixinRouteAPIError
-          err.name = 'MixinRouteAPIError'
-          err.statusCode = response.status
-          err.rawBody = errorBody
-          throw err
+          const err = new Error(
+            `HTTP ${response.status}: ${errorBody}`
+          ) as MixinRouteAPIError;
+          err.name = "MixinRouteAPIError";
+          err.statusCode = response.status;
+          err.rawBody = errorBody;
+          throw err;
         }
 
         // 解析成功响应
-        const result = await response.json()
+        const result = await response.json();
 
         // Mixin Route API 响应包含 data 字段
-        if (result && typeof result === 'object' && 'data' in result) {
-          return result.data as T
+        if (result && typeof result === "object" && "data" in result) {
+          return result.data as T;
         }
 
-        return result as T
+        return result as T;
       } catch (error) {
-        lastError = error as Error
+        lastError = error as Error;
 
         // 4xx 错误不重试
         if (
           error instanceof Error &&
-          error.name === 'MixinRouteAPIError' &&
+          error.name === "MixinRouteAPIError" &&
           (error as MixinRouteAPIError).statusCode >= 400 &&
           (error as MixinRouteAPIError).statusCode < 500
         ) {
-          throw error
+          throw error;
         }
 
         // 重试前等待
         if (attempt < this.retryCount) {
-          await new Promise(resolve => setTimeout(resolve, this.retryDelay))
+          await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
         }
       }
     }
 
-    throw lastError || new Error('Request failed')
+    throw lastError || new Error("Request failed");
   }
 
   // ... API 方法保持不变 ...
 
   async get<T>(path: string, query?: string): Promise<T> {
-    return this.doRequest<T>('GET', path, query)
+    return this.doRequest<T>("GET", path, query);
   }
 
   async post<T>(path: string, body?: unknown): Promise<T> {
-    return this.doRequest<T>('POST', path, undefined, body)
+    return this.doRequest<T>("POST", path, undefined, body);
   }
 
   async getTokens(): Promise<TokenView[]> {
-    return this.get<TokenView[]>('/web3/tokens', 'source=mixin')
+    return this.get<TokenView[]>("/web3/tokens", "source=mixin");
   }
 
   async getQuote(
@@ -333,14 +430,18 @@ export class Web3Client {
       inputMint,
       outputMint,
       amount,
-      source: 'mixin'
-    }).toString()
+      source: "mixin",
+    }).toString();
 
-    return this.get<QuoteRespView>('/web3/quote', query)
+    return this.get<QuoteRespView>("/web3/quote", query);
   }
 
   async swap(request: SwapRequest): Promise<SwapRespView> {
-    return this.post<SwapRespView>('/web3/swap', request)
+    return this.post<SwapRespView>("/web3/swap", request);
+  }
+
+  async getSwapOrder(orderId: string): Promise<SwapOrder> {
+    return this.get<SwapOrder>(`/web3/swap/orders/${orderId}`);
   }
 }
 
@@ -348,5 +449,5 @@ export function createWeb3Client(
   keystore: AppKeystore | NetworkUserKeystore,
   options?: Web3ClientOptions
 ): Web3Client {
-  return new Web3Client(keystore, options)
+  return new Web3Client(keystore, options);
 }
